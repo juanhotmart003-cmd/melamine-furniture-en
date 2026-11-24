@@ -583,7 +583,7 @@
                     <span>SPECIAL LAUNCH PRICE:</span>
                     <ins>$14.90</ins>
                 </div>
-                <p class="price-note" id="dynamic-currency-text">One-time payment: US$ 14.90</p>
+                <p class="price-note" id="dynamic-currency-text">In your currency, approximately: US$ 14.90</p>
                 <span class="urgency-badge">ACT NOW: SPECIAL PRICE FOR A LIMITED TIME.</span>
             </div>
 
@@ -1129,12 +1129,89 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     /* ==========================================
-       6. PRICE NOTE (USD)
+       6. DYNAMIC GEOLOCATION CURRENCY CONVERTER
        ========================================== */
     const currencyTextEl = document.getElementById('dynamic-currency-text');
-    if (currencyTextEl) {
-        currencyTextEl.innerHTML = '🇺🇸 One-time payment: US$ 14.90';
+    const PRICE_USD = 14.90;
+
+    const timezoneCountryMap = {
+        'America/New_York': 'US', 'America/Chicago': 'US', 'America/Denver': 'US', 'America/Los_Angeles': 'US', 'America/Phoenix': 'US', 'America/Anchorage': 'US', 'Pacific/Honolulu': 'US', 'America/Detroit': 'US', 'America/Indiana/Indianapolis': 'US', 'America/Boise': 'US',
+        'America/Toronto': 'CA', 'America/Vancouver': 'CA', 'America/Edmonton': 'CA', 'America/Winnipeg': 'CA', 'America/Halifax': 'CA', 'America/St_Johns': 'CA', 'America/Regina': 'CA', 'America/Montreal': 'CA',
+        'Europe/London': 'GB', 'Europe/Belfast': 'GB',
+        'Europe/Dublin': 'IE',
+        'Australia/Sydney': 'AU', 'Australia/Melbourne': 'AU', 'Australia/Brisbane': 'AU', 'Australia/Perth': 'AU', 'Australia/Adelaide': 'AU', 'Australia/Hobart': 'AU', 'Australia/Darwin': 'AU',
+        'Pacific/Auckland': 'NZ',
+        'Africa/Johannesburg': 'ZA'
+    };
+
+    // currency, symbol, flag, fallback rate (1 USD = x) used only if live rates fail
+    const countryCurrencyData = {
+        'US': { flag: '🇺🇸', code: 'USD', symbol: 'US$', fallback: 1 },
+        'CA': { flag: '🇨🇦', code: 'CAD', symbol: 'CA$', fallback: 1.37 },
+        'GB': { flag: '🇬🇧', code: 'GBP', symbol: '£', fallback: 0.75 },
+        'IE': { flag: '🇮🇪', code: 'EUR', symbol: '€', fallback: 0.87 },
+        'AU': { flag: '🇦🇺', code: 'AUD', symbol: 'A$', fallback: 1.43 },
+        'NZ': { flag: '🇳🇿', code: 'NZD', symbol: 'NZ$', fallback: 1.72 },
+        'ZA': { flag: '🇿🇦', code: 'ZAR', symbol: 'R', fallback: 18.0 }
+    };
+
+    let liveRates = null;
+    const ratesPromise = fetch('https://open.er-api.com/v6/latest/USD')
+        .then(res => res.json())
+        .then(data => { if (data && data.rates) liveRates = data.rates; })
+        .catch(() => {});
+
+    function getCountryByTimezone() {
+        try {
+            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            if (tz && timezoneCountryMap[tz]) return timezoneCountryMap[tz];
+            if (tz) {
+                if (tz.startsWith('Australia/')) return 'AU';
+                if (tz.startsWith('America/') && /Toronto|Vancouver|Edmonton|Winnipeg|Halifax|Regina|Montreal/.test(tz)) return 'CA';
+            }
+        } catch (e) {
+            console.error('Timezone resolution error:', e);
+        }
+        return 'US';
     }
+
+    function formatPrice(value, code) {
+        const decimals = code === 'ZAR' ? 0 : 2;
+        return value.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+    }
+
+    function updateCurrencyDisplay(countryCode) {
+        const data = countryCurrencyData[countryCode] || countryCurrencyData['US'];
+        if (!currencyTextEl) return;
+        if (data.code === 'USD') {
+            currencyTextEl.innerHTML = `${data.flag} In your currency, approximately: US$ ${formatPrice(PRICE_USD, 'USD')}`;
+            return;
+        }
+        const rate = (liveRates && liveRates[data.code]) || data.fallback;
+        currencyTextEl.innerHTML = `${data.flag} In your currency, approximately: ${data.symbol} ${formatPrice(PRICE_USD * rate, data.code)}`;
+    }
+
+    let isDetected = false;
+    const fallbackTimeout = setTimeout(() => {
+        if (!isDetected) {
+            ratesPromise.then(() => updateCurrencyDisplay(getCountryByTimezone()));
+        }
+    }, 1200);
+
+    fetch('https://ipapi.co/json/')
+        .then(res => res.json())
+        .then(data => {
+            isDetected = true;
+            clearTimeout(fallbackTimeout);
+            const countryCode = data.country_code;
+            ratesPromise.then(() => updateCurrencyDisplay(countryCurrencyData[countryCode] ? countryCode : getCountryByTimezone()));
+        })
+        .catch(err => {
+            console.warn('GeoIP fetch failed, falling back to Timezone:', err);
+            isDetected = true;
+            clearTimeout(fallbackTimeout);
+            ratesPromise.then(() => updateCurrencyDisplay(getCountryByTimezone()));
+        });
 
 });
 
